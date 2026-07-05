@@ -4,8 +4,9 @@ Created on Mon Jun 29 14:20:37 2026
 
 @author: sulin
 """
+import datetime
 class BookingSystem:
-    def __init__(self):
+    def __init__(self, days_until_flight = 30):
         #Set up the seating chart when a BookingSystem is created
         self.seating_chart = {
             '1A': 'F', '2A': 'F', '3A': 'F', '4A': 'F', '77A': 'F', '78A': 'F', '79A': 'F', '80A': 'F',
@@ -15,6 +16,10 @@ class BookingSystem:
             '1E': 'F', '2E': 'F', '3E': 'F', '4E': 'F', '79E': 'F', '80E': 'F',
             '1F': 'F', '2F': 'F', '3F': 'F', '4F': 'F', '79F': 'F', '80F': 'F'
         }
+        #Hold date of departure from user
+        self.flight_date = datetime.date.today() + datetime.timedelta(days=days_until_flight)
+        #More information about booking
+        self.bookings = {}
 
     def menu(self):
         #Return the text for the main menu as one string
@@ -63,15 +68,39 @@ class BookingSystem:
         if self.seating_chart[seat] != "F":
             print(f"Seat {seat} is not available.")
             return
+        
+        #Ask whether the passenger is taking out the travel insurance
+        has_insurance = input("Add travel insurance? (Y/N):").strip().upper() == "Y"
 
         #Book a seat, after checking it exists and is currently free.
-        confirm_seat = input(f"Do you want to book seat {seat}? (Y/N): ")
+        confirm_seat = input(f"Do you want to book seat {seat}? (Y/N): ").strip().upper()
         if confirm_seat == "Y":
             # Only update the dictionary after the user has confirmed
             self.seating_chart[seat] = "R"
+            #store the date when ticket bought and whether traveller has inurance
+            self.bookings[seat] = {"has_insurance": has_insurance,
+                                   "booking_date": datetime.date.today()}
             print(f"Seat {seat} booked.")
         else:
             print("Booking not confirmed.")
+    
+    #Check whether the reason for refund is valid 
+    def check_valid_refund(self,seat,reason):
+        #Valid return if cancellation initiated by airline
+        if reason == "airline":
+            return True 
+        
+        #valid refund if cancellation unexpected for insured travellers
+        if reason == "weather":
+            return self.bookings[seat]["has_insurance"]
+        
+        #checks for a week's notice
+        if reason == "customer":
+            #Calculate gap between day of departure and cancellation
+            days_left = (self.flight_date - datetime.date.today()).days
+            return days_left >= 7
+        
+        return False
 
     def cancel_booking(self):
         #Ask for seat number
@@ -86,13 +115,38 @@ class BookingSystem:
             print("Seat is currently not booked.")
             return
 
-        confirm_cancellation = input(f"Do you want to cancel this booking for seat {seat}? (Y/N): ")
-        if confirm_cancellation == "Y":
-            #Change status of seat once cancellation is confirmed
-            self.seating_chart[seat] = "F"
-            print("Booking cancelled")
-        else:
+        confirm_cancellation = input(f"Do you want to cancel this booking for seat {seat}? (Y/N): ").strip().upper()
+        if confirm_cancellation != "Y":
             print("Booking has not been cancelled")
+            return
+        
+        #ask reason for cancellation
+        print("Reason for cancellation:")
+        print("1. Cancelled by customer")
+        print("2. Cancelled by airline")
+        print("3. Unexpected cancellation(weather)")
+        reason_choice = input("Choose 1-3: ").strip()
+        
+        #link key to values to check for valid reason
+        reason_map = {"1": "customer", "2": "airline", "3": "weather"}
+        reason = reason_map.get(reason_choice)
+        
+        if reason is None:
+            print("Invalid reason selected.Cancellation invalid.")
+            return
+        
+        #Issue refund
+        refunded = self.check_valid_refund(seat,reason)
+        
+        #Change status of seat
+        self.seating_chart[seat] = "F"
+        self.bookings.pop(seat, None)
+        
+        print("Booking cancelled")
+        if refunded:
+            print("Refund approved.")
+        else:
+            print("Refund denied.")
 
     def show_booking_status(self):
         # Each list contains only the seat numbers 
