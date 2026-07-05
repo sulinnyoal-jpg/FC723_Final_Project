@@ -5,6 +5,9 @@ Created on Mon Jun 29 14:20:37 2026
 @author: sulin
 """
 import datetime
+import random
+import string 
+
 class BookingSystem:
     def __init__(self, days_until_flight = 30):
         #Set up the seating chart when a BookingSystem is created
@@ -31,6 +34,27 @@ class BookingSystem:
                                 "5.Exit Program\n"
                                 "-------------------------------")
         return menu_functionalities
+    
+    #Generating reference algorithm
+    def generate_booking_reference(self):
+        #define 36 possible characters (All uppercacse letters, 0-9)
+        char_set = string.ascii_uppercase + string.digits
+        
+        while True:
+            #randomly select 8 characters 
+            canidate_ref = "".join(random.choice(char_set) for char in range(8))
+            
+            #Collision check, active bookings are checked to ensure uniqueness
+            is_duplicate = False
+            for seat in self.bookings:
+                #if collision found, inner loop breaks and regenerates reference 
+                if self.bookings[seat].get("reference") == canidate_ref:
+                    is_duplicate = True
+                    break
+            
+            #return reference if no fuplicate is found
+            if not is_duplicate:
+                return canidate_ref
 
     def is_valid_seat(self, seat):
         #Check whether a seat number actually exists in the seating chart
@@ -54,7 +78,7 @@ class BookingSystem:
         elif status == "F":
             print(f"Seat {seat} is free.")
         else:
-            print(f"Seat {seat} is already booked.")
+            print(f"Seat {seat} is already booked under reference:{status}.")
 
     def book_a_seat(self):
         #Ask for a seat number.
@@ -75,12 +99,15 @@ class BookingSystem:
         #Book a seat, after checking it exists and is currently free.
         confirm_seat = input(f"Do you want to book seat {seat}? (Y/N): ").strip().upper()
         if confirm_seat == "Y":
+            #generate unique reference code
+            unique_ref = self.generate_booking_reference()
             # Only update the dictionary after the user has confirmed
-            self.seating_chart[seat] = "R"
+            self.seating_chart[seat] = unique_ref
             #store the date when ticket bought and whether traveller has inurance
-            self.bookings[seat] = {"has_insurance": has_insurance,
+            self.bookings[seat] = {"reference": unique_ref,
+                                   "has_insurance": has_insurance,
                                    "booking_date": datetime.date.today()}
-            print(f"Seat {seat} booked.")
+            print(f"Seat {seat} booked.The reference is:{unique_ref}")
         else:
             print("Booking not confirmed.")
     
@@ -111,7 +138,7 @@ class BookingSystem:
             print("The seat does not exist")
             return
 
-        if self.seating_chart[seat] != "R":
+        if self.seating_chart[seat] == "F":
             print("Seat is currently not booked.")
             return
 
@@ -151,7 +178,7 @@ class BookingSystem:
     def show_booking_status(self):
         # Each list contains only the seat numbers 
         #where the status matches what we're looking for.
-        booked_seats = [seat for seat, status in self.seating_chart.items() if status == "R"]
+        booked_seats = [seat for seat, status in self.seating_chart.items() if status != "F"]
         free_seats = [seat for seat, status in self.seating_chart.items() if status == "F"]
 
         print("\n---- Seating Chart Status Summary ----")
