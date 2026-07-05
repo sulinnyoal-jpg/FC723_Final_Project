@@ -6,6 +6,7 @@ Created on Mon Jun 29 14:20:37 2026
 """
 import datetime
 import random
+import sqlite3
 import string 
 
 class BookingSystem:
@@ -21,9 +22,37 @@ class BookingSystem:
         }
         #Hold date of departure from user
         self.flight_date = datetime.date.today() + datetime.timedelta(days=days_until_flight)
-        #More information about booking
-        self.bookings = {}
-
+        #Create a connection to an SQLite Database file
+        self.conn = sqlite3.connect("airline_bookings.db")
+        self.init_database()
+        self.sync_seating_chart_from_db()
+    
+    def init_database(self):
+        #Create relational database to store customer data
+        cursor = self.conn.cursor()
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS passenger_database(
+                           seat_number TEXT PRIMARY KEY,
+                           booking_reference TEXT UNIQUE NOT NULL,
+                           first_name TEXT NOT NULL,
+                           last_name TEXT NOT NULL,
+                           passport_number TEXT NOT NULL,
+                           has_insurance INTEGER NOT NULL,
+                           booking_date TEXT NOT NULL
+                           )
+                       """)
+        self.conn.commit()
+        
+    def sync_seating_chart_from_db(self):
+        #Ensure that seating chart mirrors the database entries when initialized
+        cursor = self.conn.cursor()
+        #Get seat number and booking reference from passanger's records
+        cursor.execute("SELECT seat_number, booking_reference FROM passenger_database")
+        for seat, reference in cursor.fetchall():
+            #Check is seat exists and assign reference
+            if seat in self.seating_chart:
+                self.seating_chart[seat] = reference
+                
     def menu(self):
         #Return the text for the main menu as one string
         menu_functionalities = ("-------------Menu-------------\n"
@@ -39,21 +68,18 @@ class BookingSystem:
     def generate_booking_reference(self):
         #define 36 possible characters (All uppercacse letters, 0-9)
         char_set = string.ascii_uppercase + string.digits
+        cursor = self.conn.cursor()
         
         while True:
             #randomly select 8 characters 
             canidate_ref = "".join(random.choice(char_set) for char in range(8))
             
-            #Collision check, active bookings are checked to ensure uniqueness
-            is_duplicate = False
-            for seat in self.bookings:
-                #if collision found, inner loop breaks and regenerates reference 
-                if self.bookings[seat].get("reference") == canidate_ref:
-                    is_duplicate = True
-                    break
+            #check database table records for uniqueness
+            #if there is no same existing reference, None will be returned
+            cursor.execute("SELECT 1 FROM passenger_database WHERE booking_reference =?",(canidate_ref,))
             
-            #return reference if no fuplicate is found
-            if not is_duplicate:
+            #return reference if no duplicate is found
+            if cursor.fetchone() is None:
                 return canidate_ref
 
     def is_valid_seat(self, seat):
@@ -93,6 +119,11 @@ class BookingSystem:
             print(f"Seat {seat} is not available.")
             return
         
+        #Ask user for their information
+        print("\n----Passenger Details----")
+        first_name = input("First Name:").strip()
+        last_name = input("Last Name:").strip()
+        passport_num = input("Passport Number:").strip()
         #Ask whether the passenger is taking out the travel insurance
         has_insurance = input("Add travel insurance? (Y/N):").strip().upper() == "Y"
 
@@ -103,10 +134,17 @@ class BookingSystem:
             unique_ref = self.generate_booking_reference()
             # Only update the dictionary after the user has confirmed
             self.seating_chart[seat] = unique_ref
-            #store the date when ticket bought and whether traveller has inurance
-            self.bookings[seat] = {"reference": unique_ref,
-                                   "has_insurance": has_insurance,
-                                   "booking_date": datetime.date.today()}
+            
+            #save passanger details to database table
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                           INSERT INTO passenger_database (seat_number, booking_reference, first_name, last_name, passport_number, has_insurance, booking_date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)
+                           """,
+                           (seat, unique_ref, first_name, last_name, passport_num, 1 if has_insurance else 0, str(datetime.date.today()))
+            )
+            self.conn.commit()
+            
             print(f"Seat {seat} booked.The reference is:{unique_ref}")
         else:
             print("Booking not confirmed.")
@@ -117,9 +155,24 @@ class BookingSystem:
         if reason == "airline":
             return True 
         
+        #lookup database for conditional checks
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT has_insurance FROM passenger_database WHERE seat_number = ?",
+                       (seat,))
+        row = cursor.fetchone()
+        #check if passanger seat exists
+        if row is not None:
+            #check if passsanger has insurance
+            if row[0] == 1:
+                has_insurance = True
+            else:
+                has_insurance = False
+        else:
+            has_insurance = False
+            
         #valid refund if cancellation unexpected for insured travellers
         if reason == "weather":
-            return self.bookings[seat]["has_insurance"]
+            return has_insurance
         
         #checks for a week's notice
         if reason == "customer":
@@ -165,9 +218,13 @@ class BookingSystem:
         #Issue refund
         refunded = self.check_valid_refund(seat,reason)
         
+        #Remove booking details from database table
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM passenger_database WHERE seat_number = ?",(seat,))
+        self.conn.commit()
+        
         #Change status of seat
         self.seating_chart[seat] = "F"
-        self.bookings.pop(seat, None)
         
         print("Booking cancelled")
         if refunded:
@@ -193,10 +250,21 @@ class BookingSystem:
         if check_specific_seat == "Y":
             seat = self.get_seat_input("Enter seat number: ")
             if self.is_valid_seat(seat):
-                print(f"Seat {seat} status: {self.seating_chart[seat]}")
+                print(f"Seat {seat} reference: {self.seating_chart[seat]}")
+                
+                #gets information from database table
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT first_name, last_name, passport_number FROM passenger_database WHERE seat_number = ?",(seat,),)
+                row = cursor.fetchone()
+                
+                if row:
+                    print(f"Passenger: {row[0]} {row[1]} | Passport: {row[2]}")
+                else:
+                    print("Seat is empty.")
             else:
                 print("Invalid seat name")
-
+    def close_connection(self):
+        self.conn.close()
 
 if __name__ == "__main__":
     system = BookingSystem()
@@ -216,6 +284,7 @@ if __name__ == "__main__":
         elif choice == "4":
             system.show_booking_status()
         elif choice == "5":
+            system.close_connection()
             print("Program Exited")
             break  # exits the while loop, ending the program
         else:
